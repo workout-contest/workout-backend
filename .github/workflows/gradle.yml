@@ -21,7 +21,7 @@ jobs:
 
       # PRODUCTION 용 환경 설정
       - name: Set Environment for PRODUCTION
-        if: github.base_ref == 'master' || github.ref == 'refs/heads/master'
+        if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
         run: |
           mkdir -p config
           echo "${{ secrets.CONFIG_PRODUCTION_ENV }}" | base64 --decode > config/production.env
