@@ -46,7 +46,7 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Build and Push Docker Image (PRODUCTION)
-        if: github.base_ref == 'master' || github.ref == 'refs/heads/master'
+        if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
         env:
           NAME: ${{ secrets.DOCKER_USERNAME }}
           REPO: workout-prod
