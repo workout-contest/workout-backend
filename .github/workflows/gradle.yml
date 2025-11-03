@@ -1,9 +1,9 @@
-name: startwith CI/CD
+name: workout CI/CD
 
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 jobs:
