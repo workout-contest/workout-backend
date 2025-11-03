@@ -1,0 +1,40 @@
+version: '3.7'
+
+services:
+  mysql:
+    container_name: mysql
+    image: mysql:8.0
+    restart: always
+    environment:
+      MYSQL_DATABASE: workout
+      MYSQL_ROOT_PASSWORD: workout1!
+      TZ: Asia/Seoul
+    ports:
+      - 3306:3306
+    volumes:
+      - ./db/mysql/data:/var/lib/mysql
+      - ./db/mysql/init:/docker-entrypoint-initdb.d
+    networks:
+      - docker-bridge
+
+  redis:
+    image: redis:7.2
+    container_name: redis
+    environment:
+      TZ: Asia/Seoul
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis/data:/data
+      - ./redis/conf/redis.conf:/usr/local/conf/redis.conf
+    labels:
+      - "name=redis"
+      - "mode=standalone"
+    restart: always
+    command: ["redis-server", "/usr/local/conf/redis.conf"]
+    networks:
+      - docker-bridge
+
+networks:
+  docker-bridge:
+    driver: bridge
