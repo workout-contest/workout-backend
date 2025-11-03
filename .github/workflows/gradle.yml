@@ -83,7 +83,7 @@ jobs:
           sudo apt-get autoremove
 
       - name: Deploy to PROD EC2
-        if: github.base_ref == 'master' || github.ref == 'refs/heads/master'
+        if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
         run: |
           ssh -o StrictHostKeyChecking=no -i ec2_key.pem ubuntu@${{ secrets.PROD_EC2_IP }} << 'EOF'
             sudo docker container prune -f
