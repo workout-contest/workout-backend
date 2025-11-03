@@ -37,7 +37,15 @@ class WorkoutProgramService:
 
         async with AsyncSessionLocal() as db:
             try:
+                # 먼저 모든 기존 program_number를 한 번에 조회 (성능 최적화)
+                logger.info("기존 운동 프로그램 데이터 확인 중...")
+                existing_query = select(WorkoutProgram.program_number)
+                existing_result = await db.execute(existing_query)
+                existing_numbers = {row[0] for row in existing_result.fetchall()}
+                logger.info(f"기존 데이터: {len(existing_numbers)}개 발견")
+
                 # CSV 파일 읽기 (CP949 인코딩)
+                logger.info("CSV 파일 읽기 및 데이터 처리 중...")
                 with open(csv_file_path, 'r', encoding='cp949') as f:
                     reader = csv.reader(f)
                     headers = next(reader)  # 헤더 스킵
@@ -57,13 +65,8 @@ class WorkoutProgramService:
                             logger.warning(f"CSV 행 파싱 실패: {row}, 오류: {e}")
                             continue
 
-                        # 이미 존재하는지 확인
-                        existing = await db.execute(
-                            select(WorkoutProgram).where(
-                                WorkoutProgram.program_number == program_number
-                            )
-                        )
-                        if existing.scalar_one_or_none() is not None:
+                        # 메모리에서 중복 체크 (DB 쿼리 없이)
+                        if program_number in existing_numbers:
                             skipped_count += 1
                             continue
 
@@ -78,6 +81,8 @@ class WorkoutProgramService:
                         )
                         db.add(program)
                         saved_count += 1
+                        # 메모리에도 추가하여 다음 중복 체크에 사용
+                        existing_numbers.add(program_number)
 
                     await db.commit()
                     logger.info(f"CSV 데이터 로딩 완료: {saved_count}개 저장, {skipped_count}개 스킵")

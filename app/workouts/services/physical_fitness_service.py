@@ -301,7 +301,8 @@ class PhysicalFitnessService:
         end_test_ym: Optional[str] = None,
         test_sex: Optional[str] = None,
         concurrent_requests: int = 5,
-        batch_size: int = 500
+        batch_size: int = 500,
+        force_refresh: bool = False
     ) -> tuple[int, int]:
         """
         API에서 모든 데이터를 가져와서 DB에 저장 (병렬 처리 및 배치 저장)
@@ -317,6 +318,7 @@ class PhysicalFitnessService:
             test_sex: 측정자성별
             concurrent_requests: 동시 API 요청 수
             batch_size: 배치 저장 크기
+            force_refresh: True이면 DB에 데이터가 있어도 강제로 다시 가져옴
 
         Returns:
             (저장된 개수, 스킵된 개수) 튜플
@@ -327,26 +329,68 @@ class PhysicalFitnessService:
         
         logger.info("=" * 80)
         logger.info("체력 측정 결과 데이터 수집 시작")
+        if force_refresh:
+            logger.info("⚠ 강제 새로고침 모드: DB에 데이터가 있어도 다시 가져옵니다.")
         logger.info(f"설정: 동시 요청 수={concurrent_requests}, 배치 크기={batch_size}, 페이지당 항목 수={num_of_rows}")
         logger.info("=" * 80)
         
         # DB에 이미 데이터가 있는지 확인
         logger.info("DB에 저장된 데이터 확인 중...")
-        async with AsyncSessionLocal() as db:
-            try:
-                count_query = select(func.count(PhysicalFitnessResult.id))
-                result = await db.execute(count_query)
-                existing_count = result.scalar() or 0
-                
-                if existing_count > 0:
-                    logger.info(f"✓ DB에 이미 {existing_count}개의 데이터가 존재합니다.")
-                    logger.info("API 요청을 건너뜁니다.")
-                    logger.info("=" * 80)
-                    return 0, existing_count
-                else:
-                    logger.info("✓ DB에 데이터가 없습니다. API에서 데이터를 가져옵니다.")
-            except Exception as e:
-                logger.warning(f"DB 확인 중 오류 발생 (계속 진행): {e}")
+        try:
+            async with AsyncSessionLocal() as db:
+                try:
+                    count_query = select(func.count(PhysicalFitnessResult.id))
+                    result = await db.execute(count_query)
+                    existing_count = result.scalar() or 0
+                    
+                    if existing_count > 0 and not force_refresh:
+                        logger.info(f"✓ DB에 이미 {existing_count}개의 데이터가 존재합니다.")
+                        logger.info("API 요청을 건너뜁니다. (강제 새로고침하려면 force_refresh=True 사용)")
+                        logger.info("=" * 80)
+                        return 0, existing_count
+                    elif existing_count > 0 and force_refresh:
+                        logger.info(f"⚠ DB에 이미 {existing_count}개의 데이터가 존재하지만, 강제 새로고침 모드로 진행합니다.")
+                    else:
+                        logger.info("✓ DB에 데이터가 없습니다. API에서 데이터를 가져옵니다.")
+                except Exception as e:
+                    logger.error(f"✗ DB 쿼리 중 오류 발생: {e}")
+                    logger.exception(e)
+                    raise
+        except Exception as e:
+            error_msg = str(e)
+            logger.error("=" * 80)
+            logger.error("✗ RDS 데이터베이스 연결 실패")
+            logger.error("=" * 80)
+            logger.error(f"오류 메시지: {error_msg}")
+            
+            # 오류 타입에 따른 상세 가이드
+            if "Access denied" in error_msg or "1045" in error_msg:
+                logger.error("")
+                logger.error("가능한 원인:")
+                logger.error("1. RDS 보안 그룹(Security Group) 설정:")
+                logger.error(f"   - 현재 접속 IP (15.164.135.137)에서 RDS로의 접근이 허용되어 있는지 확인")
+                logger.error("   - AWS 콘솔 > RDS > 보안 그룹 > 인바운드 규칙에서 MySQL/Aurora 포트(3306) 허용 확인")
+                logger.error("")
+                logger.error("2. 데이터베이스 비밀번호:")
+                logger.error("   - production.env 파일의 DATABASE_URL 비밀번호가 올바른지 확인")
+                logger.error("   - RDS 마스터 비밀번호와 일치하는지 확인")
+                logger.error("")
+                logger.error("3. MySQL 사용자 호스트 제한:")
+                logger.error("   - 'admin' 사용자가 '%' 또는 해당 IP에서 접근 가능하도록 설정되어 있는지 확인")
+                logger.error("   - MySQL: SELECT user, host FROM mysql.user WHERE user='admin'; 명령으로 확인")
+            elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                logger.error("")
+                logger.error("가능한 원인:")
+                logger.error("1. RDS 보안 그룹에서 현재 IP의 접근이 차단되어 있음")
+                logger.error("2. RDS 엔드포인트 주소가 올바른지 확인")
+            else:
+                logger.error("")
+                logger.error("상세 오류 정보:")
+                logger.exception(e)
+            
+            logger.error("=" * 80)
+            # 연결 실패 시 예외를 다시 발생시켜서 명확하게 알림
+            raise
         
         # 먼저 첫 페이지로 전체 개수 확인
         logger.info("첫 페이지를 가져와서 전체 데이터 크기 확인 중...")
@@ -521,12 +565,13 @@ class PhysicalFitnessService:
         return saved_count, skipped_count
 
 
-async def load_physical_fitness_data_from_api(max_pages: Optional[int] = None):
+async def load_physical_fitness_data_from_api(max_pages: Optional[int] = None, force_refresh: bool = False):
     """
     공공데이터 API에서 체력 측정 결과 데이터를 로드하는 편의 함수
     
     Args:
         max_pages: 최대 페이지 수 (None이면 전체 데이터 로딩)
+        force_refresh: True이면 DB에 데이터가 있어도 강제로 다시 가져옴
     """
     service = PhysicalFitnessService()
-    return await service.load_all_data_from_api(max_pages=max_pages, num_of_rows=100)
+    return await service.load_all_data_from_api(max_pages=max_pages, num_of_rows=100, force_refresh=force_refresh)
