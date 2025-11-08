@@ -389,8 +389,11 @@ class PhysicalFitnessService:
                 logger.exception(e)
             
             logger.error("=" * 80)
-            # 연결 실패 시 예외를 다시 발생시켜서 명확하게 알림
-            raise
+            logger.warning("⚠ DB 연결 실패로 인해 데이터 수집을 건너뜁니다.")
+            logger.warning("⚠ DB 연결 문제를 해결한 후 서버를 재시작하거나, force_refresh=True로 강제 실행하세요.")
+            logger.error("=" * 80)
+            # 연결 실패 시 0, 0을 반환하여 서버는 계속 실행되도록 함
+            return 0, 0
         
         # 먼저 첫 페이지로 전체 개수 확인
         logger.info("첫 페이지를 가져와서 전체 데이터 크기 확인 중...")
